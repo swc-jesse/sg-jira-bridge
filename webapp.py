@@ -5,23 +5,22 @@
 # this software in either electronic or hard copy form.
 #
 
-from __future__ import print_function
-import re
-import six
 import argparse
-from six.moves.urllib import parse
-from six.moves import BaseHTTPServer
 import json
-import ssl
 import logging
+import re
+import socket
+import ssl
 import subprocess
-
-from six.moves.socketserver import ThreadingMixIn
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
+from urllib import parse
 
 import sg_jira
 
 DESCRIPTION = """
-A simple web app frontend to the SG Jira bridge.
+A simple web app frontend to the PTR Jira bridge.
 """
 
 CSS_TEMPLATE = """
@@ -48,20 +47,18 @@ CSS_TEMPLATE = """
 
 HMTL_TEMPLATE = """
     <head>
-        <title>SG Jira Bridge: %s</title>
+        <title>PTR Jira Bridge: %s</title>
         {style}
     </head>
     <body>
-        <h1>SG Jira Bridge</h1>
+        <h1>PTR Jira Bridge</h1>
         <div class="content">
             <h2>%s</h2>
             <p>%s</p>
         </div>
     </body>
 </html>
-""".format(
-    style=CSS_TEMPLATE
-)
+""".format(style=CSS_TEMPLATE)
 
 # We overriding the default html error template to render errors to the user.
 # This template *requires* the following format tokens:
@@ -70,11 +67,11 @@ HMTL_TEMPLATE = """
 # - %(message)s - for a detailed message about the error
 HTML_ERROR_TEMPLATE = """
     <head>
-        <title>SG Jira Bridge Error %(code)d: %(message)s</title>
+        <title>PTR Jira Bridge Error %(code)d: %(message)s</title>
         {style}
     </head>
     <body>
-        <h1>SG Jira Bridge</h1>
+        <h1>PTR Jira Bridge</h1>
         <div class="error">
             <h2>Error %(code)d</h2>
             <p>%(explain)s</p>
@@ -83,9 +80,7 @@ HTML_ERROR_TEMPLATE = """
             <p><strong>Details: </strong> <pre>%(message)s</pre></p>
         </div>
     </body>
-""".format(
-    style=CSS_TEMPLATE
-)
+""".format(style=CSS_TEMPLATE)
 
 # Please note that we can't use __name__ here as it would be __main__
 logger = logging.getLogger("webapp")
@@ -127,33 +122,31 @@ class SgJiraBridgeBadRequestError(Exception):
     pass
 
 
-class Server(ThreadingMixIn, BaseHTTPServer.HTTPServer):
+class Server(ThreadingMixIn, HTTPServer):
     """
     Basic server with threading functionality mixed in. This will help the server
-    keep up with a high volume of throughput from ShotGrid and Jira.
+    keep up with a high volume of throughput from Flow Production Tracking and Jira.
     """
 
     def __init__(self, settings, *args, **kwargs):
-        # Note: BaseHTTPServer.HTTPServer is not a new style class so we can't use
-        # super here.
-        BaseHTTPServer.HTTPServer.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         self._sg_jira = sg_jira.Bridge.get_bridge(settings)
 
     def sync_in_jira(self, *args, **kwargs):
         """
-        Just pass the given parameters to the SG Jira Brige method.
+        Just pass the given parameters to the PTR Jira Brige method.
         """
         return self._sg_jira.sync_in_jira(*args, **kwargs)
 
     def sync_in_shotgun(self, *args, **kwargs):
         """
-        Just pass the given parameters to the SG Jira Brige method.
+        Just pass the given parameters to the PTR Jira Brige method.
         """
         return self._sg_jira.sync_in_shotgun(*args, **kwargs)
 
     def admin_reset(self, *args, **kwargs):
         """
-        Just pass the given parameters to the SG Jira Bridge method.
+        Just pass the given parameters to the PTR Jira Bridge method.
         """
         return self._sg_jira.reset(*args, **kwargs)
 
@@ -165,7 +158,7 @@ class Server(ThreadingMixIn, BaseHTTPServer.HTTPServer):
         return self._sg_jira.sync_settings_names
 
 
-class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+class RequestHandler(BaseHTTPRequestHandler):
     # On Python3, in socketserver.StreamRequestHandler, if this is
     # set it will use makefile() to produce the output stream. Otherwise,
     # it will use socketserver._SocketWriter, and we won't be able to get
@@ -177,7 +170,7 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     # Inject the version of sg-jira-bridge into server_version for the headers.
     server_version = "sg-jira-bridge/%s %s" % (
         get_sg_jira_bridge_version(),
-        BaseHTTPServer.BaseHTTPRequestHandler.server_version,
+        BaseHTTPRequestHandler.server_version,
     )
     # BaseHTTPServer Class variable that stores the HTML template for error
     # pages. Override the default error page template with our own.
@@ -229,8 +222,10 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         if not path_parts:
             self.post_response(
                 200,
-                "The server is alive",
-                HMTL_TEMPLATE % ("The server is alive", "The server is alive", ""),
+                "The server is alive".encode("utf-8"),
+                (
+                    HMTL_TEMPLATE % ("The server is alive", "The server is alive", "")
+                ).encode("utf-8"),
             )
             return
 
@@ -249,18 +244,18 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             return
 
         settings_name = path_parts[1]
-        if six.ensure_text(settings_name) not in self.server.sync_settings_names:
+        if str(settings_name) not in self.server.sync_settings_names:
             self.send_error(400, "Invalid settings name %s" % settings_name)
             return
 
         # Success, send a basic html page.
         self.post_response(
             200,
-            six.ensure_binary("Syncing with %s settings." % settings_name),
-            six.ensure_binary(
+            f"Syncing with {settings_name} settings.".encode("utf-8"),
+            (
                 HMTL_TEMPLATE
-                % (title, title, "Syncing with %s settings." % settings_name)
-            ),
+                % (title, title, f"Syncing with {settings_name} settings.")
+            ).encode("utf-8"),
         )
 
     def do_POST(self):
@@ -273,7 +268,7 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
           jira2sg/<settings_name>/<jira_resource_type>/<jira_resource_key>
           admin/reset
 
-        If the SG Entity is not specified in the path, it must be specified in
+        If the PTR Entity is not specified in the path, it must be specified in
         the provided payload.
         """
         # /sg2jira/default[/Task/123]
@@ -341,7 +336,7 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     def _handle_sync_request(self, path_parts, parameters):
         """
-        Handle a request to sync between ShotGrid and Jira in either direction.
+        Handle a request to sync between Flow Production Tracking and Jira in either direction.
 
         At this point, only the action (the first path_part) from the request
         path has been validated. The rest of the path_parts still need to be
@@ -351,7 +346,7 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             sg2jira/<settings_name>[/<sg_entity_type>/<sg_entity_id>]
             jira2sg/<settings_name>/<jira_resource_type>/<jira_resource_key>
 
-        If the SG Entity is not specified in the path, it must be present in
+        If the PTR Entity is not specified in the path, it must be present in
         the loaded payload.
 
         :param list path_parts: List of strings representing each part of the
@@ -371,7 +366,7 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         else:
             raise SgJiraBridgeBadRequestError("Invalid request path %s" % self.path)
 
-        if six.ensure_text(settings_name) not in self.server.sync_settings_names:
+        if str(settings_name) not in self.server.sync_settings_names:
             raise SgJiraBridgeBadRequestError(
                 "Invalid settings name %s" % settings_name
             )
@@ -397,7 +392,10 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 logger.debug(e, exc_info=True)
                 raise SgJiraBridgeBadRequestError(
                     "Invalid Shotgun %s id %s, it must be a number."
-                    % (entity_type, entity_key,)
+                    % (
+                        entity_type,
+                        entity_key,
+                    )
                 )
 
             self.server.sync_in_jira(
@@ -423,7 +421,7 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         Handle admin request to the server.
 
         Currently handles a single action, ``reset`` which resets the Bridge
-        in order to clear out the ShotGrid schema cache.
+        in order to clear out the Flow Production Tracking schema cache.
 
         At this point, only the action (the first path_part) from the request
         path has been validated. The rest of the path_parts still need to be
@@ -449,7 +447,7 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         """
-        Override :class:`BaseHTTPServer.BaseHTTPRequestHandler` method to use a
+        Override :class:`BaseHTTPRequestHandler` method to use a
         standard logger.
 
         :param str format: A format string, e.g. '%s %s'.
@@ -460,7 +458,7 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     def log_error(self, format, *args):
         """
-        Override :class:`BaseHTTPServer.BaseHTTPRequestHandler` method to use a
+        Override :class:`BaseHTTPRequestHandler` method to use a
         standard logger.
 
         :param str format: A format string, e.g. '%s %s'.
@@ -470,19 +468,20 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         logger.error(message)
 
 
-def create_server(port, settings, keyfile=None, certfile=None):
+def create_server(port, listen_address, settings, keyfile=None, certfile=None):
     """
     Create the server.
 
     :param int port: A port number to listen to.
+    :param str listen_address: The address to listen to.
     :param str settings: Path to settings file.
     :param str keyfile: Optional path to a PEM key file to run in HTTPS mode.
     :param str certfile:  Optional path to a PEM certificate file to run in HTTPS mode.
 
     :returns: The HTTP Server
-    :type: :class:`BaseHTTPServer.BaseHTTPRequestHandler`
+    :type: :class:`BaseHTTPRequestHandler`
     """
-    httpd = Server(settings, ('', port), RequestHandler)
+    httpd = Server(settings, (listen_address, port), RequestHandler)
     if keyfile and certfile:
         # Activate HTTPS.
         httpd.socket = ssl.wrap_socket(
@@ -491,16 +490,17 @@ def create_server(port, settings, keyfile=None, certfile=None):
     return httpd
 
 
-def run_server(port, settings, keyfile=None, certfile=None):
+def run_server(port, listen_address, settings, keyfile=None, certfile=None):
     """
     Run the server until a shutdown is requested.
 
     :param int port: A port number to listen to.
+    :param str listen_address: The address to listen to.
     :param str settings: Path to settings file.
     :param str keyfile: Optional path to a PEM key file to run in https mode.
     :param str certfile:  Optional path to a PEM certificate file to run in https mode.
     """
-    create_server(port, settings, keyfile, certfile).serve_forever()
+    create_server(port, listen_address, settings, keyfile, certfile).serve_forever()
 
 
 def main():
@@ -509,7 +509,15 @@ def main():
     """
     parser = argparse.ArgumentParser(description=DESCRIPTION)
     parser.add_argument(
-        "--port", type=int, default=9090, help="The port number to listen to.",
+        "--listen_address",
+        default="127.0.0.1",
+        help="The IPv4 address that the server binds to. Use 0.0.0.0 to bind on all network interfaces.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=9090,
+        help="The port number to listen to.",
     )
     parser.add_argument("--settings", help="Full path to settings file.", required=True)
     parser.add_argument(
@@ -525,8 +533,18 @@ def main():
     if args.ssl_context:
         keyfile, certfile = args.ssl_context
 
+    try:
+        socket.inet_aton(args.listen_address)
+    except socket.error:
+        print("The specified listen address is not a valid IPv4 address.")
+        sys.exit(1)
+
     run_server(
-        port=args.port, settings=args.settings, keyfile=keyfile, certfile=certfile,
+        listen_address=args.listen_address,
+        port=args.port,
+        settings=args.settings,
+        keyfile=keyfile,
+        certfile=certfile,
     )
 
 

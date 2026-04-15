@@ -6,13 +6,16 @@
 # this software in either electronic or hard copy form.
 #
 
-import mock
+import unittest.mock as mock
 
-from sg_jira.constants import SHOTGUN_JIRA_ID_FIELD, SHOTGUN_SYNC_IN_JIRA_FIELD
-from sg_jira.constants import SHOTGUN_JIRA_URL_FIELD
-
+from mock_jira import JIRA_PROJECT, JIRA_PROJECT_KEY, JIRA_USER
 from test_sync_base import TestSyncBase
-from mock_jira import JIRA_PROJECT_KEY, JIRA_PROJECT, JIRA_USER
+
+from sg_jira.constants import (
+    SHOTGUN_JIRA_ID_FIELD,
+    SHOTGUN_JIRA_URL_FIELD,
+    SHOTGUN_SYNC_IN_JIRA_FIELD,
+)
 
 # A list of Shotgun Projects
 SG_PROJECTS = [
@@ -44,7 +47,7 @@ class TestHierarchySyncer(TestSyncBase):
 
     def test_shotgun_links_sync(self, mocked_sg):
         """
-        Test syncing links from SG to Jira.
+        Test syncing links from PTR to Jira.
         """
         syncer, bridge = self._get_syncer(mocked_sg, name="asset_hierarchy")
         bridge.jira.set_projects([JIRA_PROJECT])
@@ -65,6 +68,7 @@ class TestHierarchySyncer(TestSyncBase):
             "code": "Foo",
             "description": "I'm Foo !",
             "tasks": [],
+            SHOTGUN_SYNC_IN_JIRA_FIELD: True,
         }
         self.add_to_sg_mock_db(bridge.shotgun, sg_asset)
         self.add_to_sg_mock_db(bridge.shotgun, synced_task)
@@ -103,7 +107,7 @@ class TestHierarchySyncer(TestSyncBase):
 
         # make sure we're setting the Jira URL and it's what we expect
         self.assertIsNotNone(updated_asset[SHOTGUN_JIRA_URL_FIELD])
-        expected_url = {u"name": u"View in Jira", u"url": issue.permalink()}
+        expected_url = {"name": "View in Jira", "url": issue.permalink()}
         self.assertEqual(updated_asset[SHOTGUN_JIRA_URL_FIELD], expected_url)
 
         # Should return False because the link is already there (no update)

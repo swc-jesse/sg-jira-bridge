@@ -6,24 +6,27 @@
 #
 
 import logging
+from json.decoder import JSONDecodeError
 
-from jira import JIRAError
 import jira
+from jira import JIRAError
+from packaging import version
 
 # Since we are using pbr in the forked jira repo, the tags we are using are marked as dev versions and
 # pip doesn't update them as expected.
-if not hasattr(jira.User, "user_id"):
+
+if version.parse(jira.__version__) < version.parse("3.5.0"):
     raise ImportError(
-        "The jira version installed is too old. Make sure it is updated to 2.0.0.sg.2+. "
+        "The jira version installed is too old. Make sure it is updated to 3.5.0. "
         'You can do this by using "pip install -r /path/to/requirements.txt --upgrade"'
     )
 
 from .constants import (
-    JIRA_SHOTGUN_TYPE_FIELD,
+    JIRA_RESULT_PAGING,
     JIRA_SHOTGUN_ID_FIELD,
+    JIRA_SHOTGUN_TYPE_FIELD,
     JIRA_SHOTGUN_URL_FIELD,
 )
-from .constants import JIRA_RESULT_PAGING
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +46,12 @@ class JiraSession(jira.client.JIRA):
         :raises RuntimeError: on Jira connection errors.
         """
         try:
-            super(JiraSession, self).__init__(jira_site, *args, **kwargs)
+            super().__init__(jira_site, *args, **kwargs)
+        except JSONDecodeError as e:
+            logger.debug("Unable to connect to %s: %s" % (jira_site, e), exc_info=True)
+            raise RuntimeError(
+                "Unable to connect to %s. See the log for details." % jira_site
+            )
         except JIRAError as e:
             # Jira puts some huge html / javascript code in the exception
             # string so we catch it to issue a more reasonable message.
@@ -52,7 +60,11 @@ class JiraSession(jira.client.JIRA):
             if e.status_code == 401:
                 raise RuntimeError(
                     "Unable to connect to %s (error code %d), "
-                    "please check your credentials" % (jira_site, e.status_code,)
+                    "please check your credentials"
+                    % (
+                        jira_site,
+                        e.status_code,
+                    )
                 )
             raise RuntimeError(
                 "Unable to connect to %s. See the log for details." % jira_site
@@ -83,7 +95,10 @@ class JiraSession(jira.client.JIRA):
         """
         # Build a mapping from Jira field names to their id for fast lookup.
         for jira_field in self.fields():
+            # add both the name and key to the mapping to manage all the different use cases
             self._jira_fields_map[jira_field["name"].lower()] = jira_field["id"]
+            self._jira_fields_map[jira_field["key"].lower()] = jira_field["id"]
+
         self._jira_shotgun_type_field = self.get_jira_issue_field_id(
             JIRA_SHOTGUN_TYPE_FIELD.lower()
         )
@@ -115,6 +130,16 @@ class JiraSession(jira.client.JIRA):
         """
         return self._is_jira_cloud
 
+    def assert_field(self, field_name):
+        """
+        Check if the given field exists in Jira site.
+
+        :param str field_name: A Jira field name.
+        :raises RuntimeError: if the entity does not exist.
+        """
+        if field_name.lower() not in self._jira_fields_map.keys():
+            raise RuntimeError(f"Field {field_name} doesn't exist in Jira site.")
+
     def get_jira_issue_field_id(self, name):
         """
         Return the Jira field id for the Issue field with the given name.
@@ -126,31 +151,31 @@ class JiraSession(jira.client.JIRA):
     @property
     def jira_shotgun_type_field(self):
         """
-        Return the id of the Jira field used to store the type of a linked ShotGrid
+        Return the id of the Jira field used to store the type of a linked Flow Production Tracking
         Entity.
 
-        Two custom fields are used in Jira to store a reference to a ShotGrid
-        Entity: its ShotGrid Entity type and id. This method returns the id of
-        the Jira field used to store the ShotGrid type.
+        Two custom fields are used in Jira to store a reference to a Flow Production Tracking
+        Entity: its Flow Production Tracking Entity type and id. This method returns the id of
+        the Jira field used to store the Flow Production Tracking type.
         """
         return self._jira_shotgun_type_field
 
     @property
     def jira_shotgun_id_field(self):
         """
-        Return the id of the Jira field used to store the id of a linked ShotGrid
+        Return the id of the Jira field used to store the id of a linked Flow Production Tracking
         Entity.
 
-        Two custom fields are used in Jira to store a reference to a ShotGrid
-        Entity: its ShotGrid Entity type and id. This method returns the id of
-        the Jira field used to store the ShotGrid id.
+        Two custom fields are used in Jira to store a reference to a Flow Production Tracking
+        Entity: its Flow Production Tracking Entity type and id. This method returns the id of
+        the Jira field used to store the Flow Production Tracking id.
         """
         return self._jira_shotgun_id_field
 
     @property
     def jira_shotgun_url_field(self):
         """
-        Return the id of the Jira field used to store the url of a linked ShotGrid
+        Return the id of the Jira field used to store the url of a linked Flow Production Tracking
         Entity.
         """
         return self._jira_shotgun_url_field
@@ -201,7 +226,10 @@ class JiraSession(jira.client.JIRA):
 
         logger.debug(
             "Sanitized Jira value for %s is %s"
-            % (jira_field_schema["name"], jira_value,)
+            % (
+                jira_field_schema["name"],
+                jira_value,
+            )
         )
         return jira_value
 
@@ -315,12 +343,17 @@ class JiraSession(jira.client.JIRA):
 
         # Direct user search with their email
         logger.debug("Looking up %s in assignable users" % user_email)
-        jira_users = search_method(
-            user_email,
-            project=jira_project,
+        search_params = dict(
+            project=jira_project.key,
             issueKey=jira_issue.key if jira_issue else None,
             maxResults=JIRA_RESULT_PAGING,
         )
+        if self._is_jira_cloud:
+            search_params["query"] = user_email
+        else:
+            search_params["username"] = user_email
+
+        jira_users = search_method(**search_params)
         if jira_users:
             jira_assignee = jira_users[0]
             if len(jira_users) > 1:
@@ -346,13 +379,7 @@ class JiraSession(jira.client.JIRA):
         uemail = user_email.lower()
         start_idx = 0
         logger.debug("Querying all assignable users starting at #%d" % start_idx)
-        jira_users = search_method(
-            None,
-            project=jira_project,
-            issueKey=jira_issue.key if jira_issue else None,
-            maxResults=JIRA_RESULT_PAGING,
-            startAt=start_idx,
-        )
+        jira_users = search_method(startAt=start_idx, **search_params)
         while jira_users:
             for jira_user in jira_users:
                 if (
@@ -369,25 +396,25 @@ class JiraSession(jira.client.JIRA):
                 logger.debug(
                     "Querying all assignable users starting at #%d" % start_idx
                 )
-                jira_users = search_method(
-                    None,
-                    project=jira_project,
-                    issueKey=jira_issue.key if jira_issue else None,
-                    maxResults=JIRA_RESULT_PAGING,
-                    startAt=start_idx,
-                )
+                jira_users = search_method(startAt=start_idx, **search_params)
                 logger.debug("Found %s users" % (len(jira_users)))
 
         if not jira_assignee:
             if jira_issue:
                 logger.warning(
                     "Unable to find a Jira user with email %s for Issue %s"
-                    % (user_email, jira_issue,)
+                    % (
+                        user_email,
+                        jira_issue,
+                    )
                 )
             else:
                 logger.warning(
                     "Unable to find a Jira user with email %s for Project %s"
-                    % (user_email, jira_project,)
+                    % (
+                        user_email,
+                        jira_project,
+                    )
                 )
 
         logger.debug("Found Jira Assignee %s" % jira_assignee)
@@ -420,7 +447,11 @@ class JiraSession(jira.client.JIRA):
             if tra["to"]["name"] == jira_status_name:
                 logger.debug(
                     "Found transition for Jira Issue %s to %s: %s"
-                    % (jira_issue, jira_status_name, tra,)
+                    % (
+                        jira_issue,
+                        jira_status_name,
+                        tra,
+                    )
                 )
                 # Iterate over any fields for transition and find required fields
                 # that don't have a default value. Set the value using our defaults.
@@ -503,7 +534,7 @@ class JiraSession(jira.client.JIRA):
         if issue_type.isnumeric():
             jira_issue_type = self.issue_type(issue_type)
         else:
-            jira_issue_type = self.issue_type_by_name(issue_type)
+            jira_issue_type = self.issue_type_by_name(issue_type, project=jira_project)
         # Retrieve creation meta data for the project / issue type
         # Note: there is a new simpler Project type in Jira where createmeta is not
         # available.
@@ -512,26 +543,79 @@ class JiraSession(jira.client.JIRA):
         # It seems a Project `simplified` key can help distinguish between old
         # school projects and new simpler projects.
         # TODO: cache the retrieved data to avoid multiple requests to the server
-        create_meta_data = self.createmeta(
-            jira_project,
-            issuetypeIds=jira_issue_type.id,
-            expand="projects.issuetypes.fields",
-        )
-        # We asked for a single project / single issue type, so we can just pick
-        # the first entry, if it exists.
-        if (
-            not create_meta_data["projects"]
-            or not create_meta_data["projects"][0]["issuetypes"]
-        ):
-            logger.debug(
-                "Create meta data for Project %s Issue type %s: %s"
-                % (jira_project, jira_issue_type.id, create_meta_data)
+
+        if self._is_jira_cloud or self._version < (9, 0, 0):
+            # Existing logic works for Jira Cloud or Jira Server 8 or prior.
+            create_meta_data = self.createmeta(
+                jira_project,
+                issuetypeIds=jira_issue_type.id,
+                expand="projects.issuetypes.fields",
             )
-            raise RuntimeError(
-                "Unable to retrieve create meta data for Project %s Issue type %s."
-                % (jira_project, jira_issue_type.id,)
+            # We asked for a single project / single issue type, so we can just pick
+            # the first entry, if it exists.
+            if (
+                not create_meta_data["projects"]
+                or not create_meta_data["projects"][0]["issuetypes"]
+            ):
+                logger.debug(
+                    "Create meta data for Project %s Issue type %s: %s"
+                    % (jira_project, jira_issue_type.id, create_meta_data)
+                )
+                raise RuntimeError(
+                    "Unable to retrieve create meta data for Project %s Issue type %s."
+                    % (
+                        jira_project,
+                        jira_issue_type.id,
+                    )
+                )
+            fields_createmeta = create_meta_data["projects"][0]["issuetypes"][0][
+                "fields"
+            ]
+        else:
+            # createmeta is not supported on Jira Server 9 and Python client 3.5.0
+            # Instead, we'll use the new createmeta_issuetypes and createmeta_fieldtypes methods
+            create_meta_data = self.createmeta_issuetypes(
+                jira_project,
             )
-        fields_createmeta = create_meta_data["projects"][0]["issuetypes"][0]["fields"]
+            # We asked for a single project / single issue type, so we can just pick
+            # the first entry, if it exists.
+            if (
+                not create_meta_data["values"]
+                or not len(create_meta_data["values"]) > 0
+            ):
+                logger.error(
+                    "Create meta data issue types for Project %s Issue type %s: %s"
+                    % (jira_project, jira_issue_type.id, create_meta_data)
+                )
+                raise RuntimeError(
+                    "Unable to retrieve create meta data for Project %s Issue type %s."
+                    % (
+                        jira_project,
+                        jira_issue_type.id,
+                    )
+                )
+            # Get the field types because createmeta_issuetypes doesn't expand the fields
+            create_meta_data_fieldtypes = self.createmeta_fieldtypes(
+                jira_project,
+                issueTypeId=create_meta_data["values"][0]["id"],
+            )
+            if not create_meta_data_fieldtypes["values"]:
+                logger.debug(
+                    "Create meta data field types for Project %s Issue type %s: %s"
+                    % (jira_project, jira_issue_type.id, create_meta_data_fieldtypes)
+                )
+                raise RuntimeError(
+                    "Unable to retrieve create meta data for Project %s Issue type %s."
+                    % (
+                        jira_project,
+                        jira_issue_type.id,
+                    )
+                )
+            # Convert response to be backwards compatible
+            fields_createmeta = {
+                value["fieldId"]: value
+                for value in create_meta_data_fieldtypes["values"]
+            }
 
         # Make a shallow copy so we can add/delete keys
         data = dict(data)
@@ -550,7 +634,10 @@ class JiraSession(jira.client.JIRA):
         if missing:
             raise ValueError(
                 "Unable to create Jira %s Issue. The following required data is missing: %s"
-                % (data["issuetype"]["name"], missing,)
+                % (
+                    data["issuetype"]["name"],
+                    missing,
+                )
             )
         # Check if we're trying to set any value which can't be set and validate
         # empty values.
@@ -610,3 +697,66 @@ class JiraSession(jira.client.JIRA):
                 % (jira_issue.fields.issuetype, jira_issue.key)
             )
         return jira_edit_fields
+
+    def get_project_issue_type_fields(self, jira_project, issue_type):
+        """Get all the available Jira fields for a given Jira project and issue type."""
+
+        jira_issue_type = self.issue_type_by_name(issue_type, project=jira_project)
+        # Retrieve creation meta data for the project / issue type
+        # Note: there is a new simpler Project type in Jira where createmeta is not
+        # available.
+        # https://confluence.atlassian.com/jirasoftwarecloud/working-with-agility-boards-945104895.html
+        # https://community.developer.atlassian.com/t/jira-cloud-next-gen-projects-and-connect-apps/23681/14
+        # It seems a Project `simplified` key can help distinguish between old
+        # school projects and new simpler projects.
+        # TODO: cache the retrieved data to avoid multiple requests to the server
+
+        if self._is_jira_cloud or self._version < (9, 0, 0):
+            # Existing logic works for Jira Cloud or Jira Server 8 or prior.
+            create_meta_data = self.createmeta(
+                jira_project,
+                issuetypeIds=jira_issue_type.id,
+                expand="projects.issuetypes.fields",
+            )
+            # We asked for a single project / single issue type, so we can just pick
+            # the first entry, if it exists.
+            if (
+                not create_meta_data["projects"]
+                or not create_meta_data["projects"][0]["issuetypes"]
+            ):
+                logger.debug(
+                    f"Create meta data for Project {jira_project} Issue type {issue_type}: {create_meta_data}"
+                )
+                raise RuntimeError(
+                    f"Unable to retrieve create meta data for Project {jira_project} Issue type {issue_type}."
+                )
+            return create_meta_data["projects"][0]["issuetypes"][0]["fields"]
+
+        # createmeta is not supported on Jira Server 9 and Python client 3.5.0
+        # Instead, we'll use the new createmeta_issuetypes and createmeta_fieldtypes methods
+        create_meta_data = self.createmeta_issuetypes(jira_project)
+        # We asked for a single project / single issue type, so we can just pick
+        # the first entry, if it exists.
+        if not create_meta_data["values"] or not len(create_meta_data["values"]) > 0:
+            logger.error(
+                f"Create meta data issue types for Project {jira_project} Issue type {issue_type}:{create_meta_data}"
+            )
+            raise RuntimeError(
+                f"Unable to retrieve create meta data for Project {jira_project} Issue type {issue_type}."
+            )
+        # Get the field types because createmeta_issuetypes doesn't expand the fields
+        create_meta_data_fieldtypes = self.createmeta_fieldtypes(
+            jira_project, issueTypeId=create_meta_data["values"][0]["id"]
+        )
+        if not create_meta_data_fieldtypes["values"]:
+            logger.debug(
+                f"Create meta data field types for Project {jira_project} Issue type {issue_type}: "
+                f"{create_meta_data_fieldtypes}"
+            )
+            raise RuntimeError(
+                f"Unable to retrieve create meta data for Project {jira_project} Issue type {issue_type}."
+            )
+        # Convert response to be backwards compatible
+        return {
+            value["fieldId"]: value for value in create_meta_data_fieldtypes["values"]
+        }

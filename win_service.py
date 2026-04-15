@@ -5,13 +5,13 @@
 # this software in either electronic or hard copy form.
 #
 
-import win32serviceutil
+import os
+import time
+
 import servicemanager
 import win32event
 import win32service
-
-import os
-import time
+import win32serviceutil
 
 
 class WindowsService(win32serviceutil.ServiceFramework):
@@ -39,8 +39,10 @@ class WindowsService(win32serviceutil.ServiceFramework):
     """
 
     _svc_name_ = "ShotgunJiraBridge"
-    _svc_display_name_ = "ShotGrid Jira Bridge"
-    _svc_description_ = "Run the ShotGrid Jira web app as a Windows service."
+    _svc_display_name_ = "Flow Production Tracking Jira Bridge"
+    _svc_description_ = (
+        "Run the Flow Production Tracking Jira web app as a Windows service."
+    )
 
     def __init__(self, args):
         win32serviceutil.ServiceFramework.__init__(self, args)
@@ -60,9 +62,9 @@ class WindowsService(win32serviceutil.ServiceFramework):
         # http://bugs.python.org/issue5162
         # TODO: Test this without virtualenv. Shouldn't use services with virtualenv.
 
-        # os.kill is supported on Windows in Python 2.7 but requires we know the
+        # os.kill is supported on Windows but requires the
         # pid which we don't have easy access to.
-        # See Windows-specific info: https://docs.python.org/2/library/os.html#os.kill
+        # See Windows-specific info: https://docs.python.org/3/library/os.html#os.kill
 
         # Threading option:
         # https://stackoverflow.com/a/35576127/3642440
@@ -134,7 +136,8 @@ class WindowsService(win32serviceutil.ServiceFramework):
             import webapp
 
             webapp.run_server(
-                port=port_number, settings=settings_path,
+                port=port_number,
+                settings=settings_path,
             )
         except Exception as e:
             servicemanager.LogErrorMsg("Unable to start %s: %s" % (self._svc_name_, e))
