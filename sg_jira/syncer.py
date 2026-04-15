@@ -10,25 +10,26 @@ import logging
 
 class Syncer(object):
     """
-    A class handling syncing between ShotGrid and Jira.
+    A class handling syncing between Flow Production Tracking and Jira.
 
     All Syncers should define a list of :class:`~handlers.SyncHandler` which should reject
     or accept and process events.
     """
 
-    def __init__(self, name, bridge, **kwargs):
+    def __init__(self, name, bridge, hook_class, **kwargs):
         """
-        Instatiate a new syncer for the given bridge.
+        Instantiate a new syncer for the given bridge.
 
         :param str name: A unique name for the syncer.
         :param bridge: A :class:`~sg_jira.Bridge` instance.
         """
-        super(Syncer, self).__init__()
+        super().__init__()
         self._name = name
         self._bridge = bridge
         # Set a logger per instance: this allows to filter logs with the
         # syncer name, or even have log file handlers per syncer
         self._logger = logging.getLogger(__name__).getChild(self._name)
+        self._hook = hook_class(self._bridge, self._logger)
 
     @property
     def bridge(self):
@@ -52,6 +53,11 @@ class Syncer(object):
         return self._bridge.jira
 
     @property
+    def hook(self):
+        """Return the :class:`~sg_jira.Hook` instance used by this syncer."""
+        return self._hook
+
+    @property
     def handlers(self):
         """
         Needs to be re-implemented in deriving classes and return a list of
@@ -61,7 +67,7 @@ class Syncer(object):
 
     def setup(self):
         """
-        Check the Jira and ShotGrid site, ensure that the sync can safely happen
+        Check the Jira and Flow Production Tracking site, ensure that the sync can safely happen
         and cache any value which is slow to retrieve.
         """
         self._logger.debug(
@@ -83,7 +89,7 @@ class Syncer(object):
 
     def accept_shotgun_event(self, entity_type, entity_id, event):
         """
-        Accept or reject the given event for the given ShotGrid Entity.
+        Accept or reject the given event for the given Flow Production Tracking Entity.
 
         :returns: A :class:`~handlers.SyncHandler` instance if the event is accepted for
                   processing, `None` otherwise.
@@ -142,7 +148,11 @@ class Syncer(object):
                 return handler
 
         self._logger.debug(
-            "Event %s was rejected by all handlers %s" % (event, self.handlers,)
+            "Event %s was rejected by all handlers %s"
+            % (
+                event,
+                self.handlers,
+            )
         )
         return None
 
@@ -165,7 +175,10 @@ class Syncer(object):
             ):
                 self._logger.debug(
                     "Rejecting event %s triggered by us (%s)"
-                    % (event, user["accountId"],)
+                    % (
+                        event,
+                        user["accountId"],
+                    )
                 )
                 return None
 
@@ -181,7 +194,11 @@ class Syncer(object):
                 and user["name"].lower() == self.bridge.current_jira_username.lower()
             ):
                 self._logger.debug(
-                    "Rejecting event %s triggered by us (%s)" % (event, user["name"],)
+                    "Rejecting event %s triggered by us (%s)"
+                    % (
+                        event,
+                        user["name"],
+                    )
                 )
                 return None
 
@@ -195,7 +212,10 @@ class Syncer(object):
             ):
                 self._logger.debug(
                     "Rejecting event %s triggered by us (%s)"
-                    % (event, user["emailAddress"],)
+                    % (
+                        event,
+                        user["emailAddress"],
+                    )
                 )
                 return None
 
@@ -212,6 +232,10 @@ class Syncer(object):
                 return handler
 
         self._logger.debug(
-            "Event %s was rejected by all handlers %s" % (event, self.handlers,)
+            "Event %s was rejected by all handlers %s"
+            % (
+                event,
+                self.handlers,
+            )
         )
         return None

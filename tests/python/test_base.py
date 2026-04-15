@@ -6,21 +6,21 @@
 #
 
 import os
-import unittest2 as unittest
+import unittest
 
+from mock_jira import MockedJira
 from shotgun_api3.lib import mockgun
 
 from sg_jira.jira_session import JiraSession
-from mock_jira import MockedJira
 
 
 class TestBase(unittest.TestCase):
     """
-    A TestCase class with some helpers to mock SG calls.
+    A TestCase class with some helpers to mock PTR calls.
     """
 
     def setUp(self):
-        super(TestBase, self).setUp()
+        super().setUp()
         self._fixtures_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "fixtures")
         )
@@ -44,7 +44,7 @@ class TestBase(unittest.TestCase):
 
     def set_sg_mock_schema(self, path):
         """
-        Set the SG mock schema from files in the given folder.
+        Set the PTR mock schema from files in the given folder.
 
         :param str path: A folder path which contains schema pickle files.
         """
@@ -56,8 +56,8 @@ class TestBase(unittest.TestCase):
 
     def add_to_sg_mock_db(self, mockgun, entities):
         """
-        Adds an entity or entities to the mocked ShotGrid database.
-        :param entities: A ShotGrid style dictionary with keys for id, type, and name
+        Adds an entity or entities to the mocked Flow Production Tracking database.
+        :param entities: A Flow Production Tracking style dictionary with keys for id, type, and name
                          defined. A list of such dictionaries is also valid.
         """
         # make sure it's a list
@@ -72,7 +72,8 @@ class TestBase(unittest.TestCase):
             eid = entity["id"]
 
             # special retired flag for mockgun
-            entity["__retired"] = False
+            if "__retired" not in entity:
+                entity["__retired"] = False
             # set a created by
             entity["created_by"] = {"type": "HumanUser", "id": 1}
             # turn any dicts into proper type/id/name refs

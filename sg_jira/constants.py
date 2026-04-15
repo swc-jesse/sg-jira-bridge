@@ -34,6 +34,9 @@ SHOTGUN_JIRA_URL_FIELD = "sg_jira_url"
 # A Shotgun check box field used to specify which entities should be synced.
 SHOTGUN_SYNC_IN_JIRA_FIELD = "sg_sync_in_jira"
 
+# A Jira check box field used to specify which entities should be synced.
+JIRA_SYNC_IN_FPTR_FIELD = "Sync In FPTR"
+
 # Shotgun fields handling multiple values
 SHOTGUN_LIST_FIELDS = ["multi_entity"]
 
@@ -50,8 +53,100 @@ SG_ENTITY_SPECIAL_NAME_FIELDS = {
     "Tag": "name",
     "Ticket": "title",
     "ApiUser": "name",
+    "TimeLog": "description",
 }
 
 # Jira search methods use some paging
 # this is the max number of results to get per "page".
 JIRA_RESULT_PAGING = 2000
+
+# Mappings
+
+# Define the mapping between Shotgun Task fields and Jira Issue fields
+# if the Jira target is None, it means the target field is not settable
+# directly.
+TASK_FIELDS_MAPPING = {
+    "content": "summary",
+    "sg_description": "description",
+    "sg_status_list": None,
+    "task_assignees": "assignee",
+    "tags": "labels",
+    "created_by": "reporter",
+    "due_date": "duedate",
+    "est_in_mins": "timetracking",  # time tracking needs to be enabled in Jira.
+    "addressings_cc": None,
+    "step.Step.code": "customfield_10082",
+}
+
+# Define the mapping between Jira Issue fields and Shotgun Task fields
+# if the Shotgun target is None, it means the target field is not settable
+# directly.
+TASK_ISSUE_FIELDS_MAPPING = {
+    "summary": "content",
+    "description": "sg_description",
+    "status": "sg_status_list",
+    "assignee": "task_assignees",
+    "labels": "tags",
+    "duedate": "due_date",
+    "timeoriginalestimate": "est_in_mins",  # time tracking needs to be enabled in Jira.
+    "watches": "addressings_cc",
+}
+
+TASK_ISSUE_STATUS_MAPPING = {
+    "wtg": "Waiting To Start",
+    "rdy": "Ready To Start",
+    "ip": "In Progress",
+    "fin": "Final",
+    "hld": "On Hold",
+}
+
+# Define the mapping between Shotgun Note fields and Jira Comment fields.
+# If the Jira target is None, it means the target field is not settable
+# directly.
+NOTE_FIELDS_MAPPING = {
+    "subject": None,
+    "content": None,
+    "user": None,
+    "tasks": None,
+}
+
+# Define the mapping between Shotgun Asset fields and Jira Issue fields
+ASSET_FIELDS_MAPPING = {
+    "code": "summary",
+    "description": "description",
+    "tags": "labels",
+    "created_by": "reporter",
+    "tasks": None,
+    "sg_status_list": None,
+}
+
+# Define the mapping between Flow Production Tracking TimeLog and Jira Worklog fields
+TIMELOG_FIELDS_MAPPING = {
+    "user": "author",
+    "date": "started",
+    "duration": "timeSpent",
+    "description": "comment",
+    "entity": None,
+}
+
+# The type of Issue link to use when linking a Task Issue to the Issue
+# representing the Asset.
+JIRA_PARENT_LINK_TYPE = "relates to"
+
+# Define the mapping between Jira Issue fields and Shotgun Asset fields
+# if the Shotgun target is None, it means the target field is not settable
+# directly.
+ISSUE_FIELDS_MAPPING = {
+    "summary": "code",
+    "description": "description",
+    "status": "sg_status_list",
+    "labels": "tags",
+}
+
+ASSET_ISSUE_STATUS_MAPPING = {
+    "wtg": "Waiting To Start",
+    "rdy": "Ready To Start",
+    "ip": "In Progress",
+    "fin": "Final",
+    "hld": "On Hold",
+}

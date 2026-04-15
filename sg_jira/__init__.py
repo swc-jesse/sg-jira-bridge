@@ -5,7 +5,25 @@
 # this software in either electronic or hard copy form.
 #
 
+import sys
+
+IMPORT_MODULES = ["shotgun_api3", "jira", "dotenv"]
+
+if sys.platform != "win32":
+    IMPORT_MODULES.append("daemonize")
+
+for module_name in IMPORT_MODULES:
+    try:
+        __import__(module_name)
+    except ModuleNotFoundError as e:
+        raise RuntimeError(
+            "Could not import '%s' module. Did you install the requirements.txt file? Original error: %s"
+            % (module_name, str(e))
+        )
+
 from .bridge import Bridge
-from .syncer import Syncer
+from .entities_generic_syncer import EntitiesGenericSyncer
+from .hook import JiraHook
 from .jira_session import JiraSession
+from .syncer import Syncer
 from .task_issue_syncer import TaskIssueSyncer

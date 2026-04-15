@@ -23,16 +23,16 @@ class ExampleSync(Syncer):
         :param log_level: A standard logging level.
         """
         # Call base class init with all parameters we do not handle specifically
-        super(ExampleSync, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         # Handle our additional parameter.
         self.logger.setLevel(log_level)
 
     def process_shotgun_event(self, entity_type, entity_id, event):
         """
-        Process the given ShotGrid event for the given ShotGrid Entity
+        Process the given Flow Production Tracking event for the given Flow Production Tracking Entity
 
-        :param str entity_type: The ShotGrid Entity type to sync.
-        :param int entity_id: The id of the ShotGrid Entity to sync.
+        :param str entity_type: The Flow Production Tracking Entity type to sync.
+        :param int entity_id: The id of the Flow Production Tracking Entity to sync.
         :param event: A dictionary with the event meta data for the change.
         """
         self.logger.info(

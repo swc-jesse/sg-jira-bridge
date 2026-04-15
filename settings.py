@@ -5,29 +5,31 @@
 # this software in either electronic or hard copy form.
 #
 """
-ShotGrid Jira sync settings
+Flow Production Tracking Jira sync settings
 """
+
+import logging
 import os
 import sys
-import logging
-
-# Documentation for these settings are available at
-# https://developer.shotgridsoftware.com/sg-jira-bridge/settings.html
 
 # Allow users to define their sensitive data in a .env file and
 # load it in environment variables with python-dotenv.
 # https://pypi.org/project/python-dotenv/
 from dotenv import load_dotenv
 
+# Documentation for these settings are available at
+# https://developer.shotgridsoftware.com/sg-jira-bridge/settings.html
+
+
 load_dotenv(override=True)
 
 # fmt: off
-# Shotgun site and credentials
+# Flow Production Tracking site and credentials
 SHOTGUN = {
     "site": os.environ.get("SGJIRA_SG_SITE"),
     "script_name": os.environ.get("SGJIRA_SG_SCRIPT_NAME"),
     "script_key": os.environ.get("SGJIRA_SG_SCRIPT_KEY"),
-    "http_proxy": None,  # If set, the Shotgun connection is done through this proxy.
+    "http_proxy": None,  # If set, the Flow Production Tracking connection is done through this proxy.
 }
 # Jira site and credentials, the user name needs to be an email address or
 # the user login name, e.g. ford_escort for "Ford Escort".
@@ -78,7 +80,7 @@ LOGGING = {
             "formatter": "standard"
         },
         "file": {
-            "level": "INFO",
+            "level": "DEBUG",
             "class": "logging.handlers.RotatingFileHandler",
             "formatter": "standard",
             # this location should be updated to where you store logs
@@ -112,6 +114,18 @@ SYNC = {
             "task_issue_type": "ShotGrid Task",
         },
     },
+    "timelog": {
+        # The syncer class to use
+        "syncer": "timelog_worklog.TimelogWorklogSyncer",
+        # And its specific settings which are passed to its __init__ method
+        "settings": {
+            "issue_type": "Task",
+            # If True, when a worklog is deleted in Jira it will also be deleted in Flow Production Tracking
+            "sync_sg_timelog_deletion": True,
+            # If True, when a timelog is deleted in Flow Production Tracking, it will also be deleted in Jira
+            "sync_jira_worklog_deletion": True,
+        },
+    },
     "test": {
         # Example of a custom syncer with an additional parameter to define
         # a log level.
@@ -119,6 +133,67 @@ SYNC = {
         "settings": {
             "log_level": logging.DEBUG
         },
-    }
+    },
+    "entities": {
+        "syncer": "sg_jira.EntitiesGenericSyncer",
+        "settings": {
+            "entity_mapping": [
+                {
+                    "sg_entity": "Task",
+                    "jira_issue_type": "Task",
+                    "field_mapping": [
+                        {
+                            "sg_field": "content",
+                            "jira_field": "summary",
+                        },
+                        {
+                            "sg_field": "sg_description",
+                            "jira_field": "description",
+                        },
+                        {
+                            "sg_field": "task_assignees",
+                            "jira_field": "assignee",
+                        },
+                        {
+                            "sg_field": "tags",
+                            "jira_field": "labels",
+                        },
+                        {
+                            "sg_field": "created_by",
+                            "jira_field": "reporter",
+                        },
+                        {
+                            "sg_field": "due_date",
+                            "jira_field": "duedate",
+                        },
+                        {
+                            "sg_field": "est_in_mins",
+                            "jira_field": "timetracking",
+                        },
+                        {
+                            "sg_field": "addressings_cc",
+                            "jira_field": "watches",
+                        },
+                    ],
+                    "status_mapping": {
+                        "sync_direction": "jira_to_sg",
+                        "sg_field": "sg_status_list",
+                        "mapping": {
+                            "wtg": "To Do",
+                            "rdy": "Open",
+                            "ip": "In Progress",
+                            "fin": "Done",
+                            "hld": "Backlog",
+                            "omt": "Closed",
+                        }
+                    }
+                },
+                {
+                    "sg_entity": "Note",    # Note is a special entity, we only need to add the "sg_entity" key if we want to sync the changes
+                    "sync_deletion_direction": "both_way",
+                },
+            ],
+        },
+    },
 }
 # fmt: on
